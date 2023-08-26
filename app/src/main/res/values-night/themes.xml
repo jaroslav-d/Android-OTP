@@ -1,0 +1,9 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. -->
+    <style name="Theme.AndroidOTP" parent="Theme.AppCompat.DayNight">
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">#dadada</item>
+        <item name="colorAccent">#daddad</item>
+        <!-- Customize your theme here. -->
+    </style>
+</resources>

@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">AndroidOTP</string>
+    <string name="back_to_main">back to main</string>
+    <string name="next">next</string>
+    <string name="call">call</string>
+    <string name="cast">cast</string>
+</resources>

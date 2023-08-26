@@ -1,0 +1,9 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. -->
+    <style name="Theme.AndroidOTP" parent="Theme.AppCompat.Light">
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">#228228</item>
+        <item name="colorAccent">#420420</item>
+        <!-- Customize your theme here. -->
+    </style>
+</resources>
