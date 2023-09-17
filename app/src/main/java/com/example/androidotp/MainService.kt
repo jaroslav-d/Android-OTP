@@ -5,9 +5,10 @@ import android.content.Intent
 import android.os.*
 import android.util.Log
 import com.example.android.asMessenger
+import com.example.android.bindGenServer
 import com.example.android.genServer
+import com.example.android.getNodeFrom
 import com.example.otp.GenServer
-import com.example.otp.MessageCode
 
 class MainService : Service(), GenServer<String> {
 
@@ -17,7 +18,8 @@ class MainService : Service(), GenServer<String> {
         genServer.start(this, Bundle())
     }
 
-    override fun onBind(intent: Intent?): IBinder {
+    override fun onBind(intent: Intent): IBinder {
+        getNodeFrom(intent)
         return asMessenger().binder
     }
 
@@ -28,7 +30,7 @@ class MainService : Service(), GenServer<String> {
     }
 
     override fun init(args: Bundle): String {
-        Log.d(this.javaClass.simpleName, "init: MainService")
+        Log.d(MainService::class.java.simpleName, "init: MainService")
         return "Hello world! and 0"
     }
 
@@ -41,13 +43,24 @@ class MainService : Service(), GenServer<String> {
             state
             .split(" and ")
             .let { "${ it[0] } and ${ it[1].toInt() + 1 }" }
-        Log.d(this::class.simpleName, "handleCall: state -> $newState")
+        Log.d(MainService::class.java.simpleName, "handleCall: state -> $newState")
         return Pair(newState, Bundle())
     }
 
     override fun handleCast(request: Parcelable, state: String): String {
-        Log.d(this::class.simpleName, "handleCast: state -> $state")
-        genServer.cast("MainFragment", Bundle().apply { putByte("number", 12) })
+        Log.d(MainService::class.java.simpleName, "handleCast: state -> $state")
+        genServer.cast("MainViewModel", Bundle().apply { putByte("number", 12) })
+        if (state == "Hello world! and 3") {
+            bindGenServer(
+                applicationContext,
+                Intent(applicationContext, SecondService::class.java),
+                SecondService::class.simpleName!!
+            )
+            Handler(Looper.getMainLooper()).postDelayed(
+                { genServer.cast("SecondService", Bundle()) },
+                5000
+            )
+        }
         return state
             .split(" and ")
             .let { "${ it[0] } and ${ it[1].toInt() + 1 }" }

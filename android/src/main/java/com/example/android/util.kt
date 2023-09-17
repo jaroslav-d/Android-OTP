@@ -1,93 +1,19 @@
 package com.example.android
 
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.os.*
+import android.util.Log
 import com.example.otp.*
-
-//private var listServices = mutableMapOf<String, Messenger>()
-
-//fun supervisor(callback: Supervisor) = object : SupervisorUtil {
-//    override fun <Args> startLink(module: String, args: Args) {
-//        callback.init()
-//    }
-//}
-//
-//fun <State> genServer(callback: GenServer<State>) = object : GenServerUtil {
-//    private var state: State? = null
-//    private var callMsg: Parcelable = Bundle()
-//    private var handler = Handler(Looper.getMainLooper())
-//    private var handlerThread = HandlerThread(callback.javaClass.simpleName)
-//
-//    private val module = callback.javaClass.simpleName
-//    private val lock = Object()
-//
-//    private fun createThread(module: String) = HandlerThread(module).apply { start() }
-//
-//    private fun createHandler(handlerThread: HandlerThread) = Handler(handlerThread.looper) {
-//        if (it.what == MessageCode.SEND_CAST.what) {
-//            state = callback.handleCast(it.obj as Parcelable, state!!)
-//        }
-//        if (it.what == MessageCode.RECEIVE_CAST.what) { }
-//        if (it.what == MessageCode.SEND_CALL.what) {
-//            val (newState, response) = callback.handleCall(it.obj as Parcelable, it.replyTo, state!!)
-//            state = newState
-//            val message = Message.obtain().apply {
-//                what = MessageCode.RECEIVE_CALL.what
-//                obj = response
-//            }
-//            it.replyTo.send(message)
-//        }
-//        if (it.what == MessageCode.RECEIVE_CALL.what) {
-//            callMsg = it.obj as Parcelable
-//            synchronized(lock) {
-//                lock.notify()
-//            }
-//        }
-//        return@Handler true
-//    }
-//
-//    override fun start(args: Bundle) {
-//        if (listServices[module] != null) return
-//        handlerThread = createThread(module)
-//        handler = createHandler(handlerThread)
-//        handler.post { state = callback.init(args) }
-//        listServices[module] = Messenger(handler)
-//    }
-//
-//    override fun call(whom: String, request: Parcelable): Parcelable {
-//        val messenger = listServices[whom] ?: return Bundle()
-//        val message = Message.obtain().apply {
-//            what = MessageCode.SEND_CALL.what
-//            obj = request
-//            replyTo = Messenger(handler)
-//        }
-//        messenger.send(message)
-//        synchronized(lock) {
-//            lock.wait()
-//        }
-//        return callMsg
-//    }
-//
-//    override fun cast(whom: String, request: Parcelable) {
-//        val messenger = listServices[whom] ?: return
-//        val message = Message.obtain().apply {
-//            what = MessageCode.SEND_CAST.what
-//            obj = request
-//        }
-//        messenger.send(message)
-//    }
-//
-//    override fun stop() {
-//        if (listServices[module] == null) return
-//        if (module == handlerThread.name) { handlerThread.quit() }
-//        listServices.remove(module)
-//    }
-//}
-
 
 private interface GenServerInstance {
     val name: String
     val messenger: Messenger
 }
+
+private interface NodeGenServerInstance : GenServerInstance
 
 private val listServices = mutableMapOf<String, GenServerInstance>()
 
@@ -96,7 +22,7 @@ class NotFoundGenServerException : Exception("the gen_server not found in system
 
 val genServer = object : GenServerUtil {
 
-    val mHandlerThread = HandlerThread("gen_server_call").apply { start() }
+    private val mHandlerThread = HandlerThread("gen_server_call").apply { start() }
 
     private fun <State> createLink(
         serverName: String,
@@ -125,6 +51,15 @@ val genServer = object : GenServerUtil {
                 listServices.remove(name)
                 handlerThread.quit()
             }
+            if (it.what == MessageCode.REMOTE.what) {
+                val whom = it.data.getString("whom")
+                val message = it.data.getParcelable<Message>("message")
+                val except = it.data.getStringArrayList("except")
+                if (whom == null || message == null || except == null) {}
+                else {
+                    send(whom, message, except)
+                }
+            }
             return@Handler true
         }
         override val messenger get() = Messenger(handler)
@@ -143,7 +78,6 @@ val genServer = object : GenServerUtil {
     }
 
     override fun call(whom: String, request: Parcelable): Parcelable {
-        val service = listServices[whom] ?: return Bundle()
         val lock = Object()
         var callMsg: Parcelable = Bundle()
         val handler = Handler(mHandlerThread.looper) {
@@ -160,7 +94,7 @@ val genServer = object : GenServerUtil {
             obj = request
             replyTo = Messenger(handler)
         }
-        service.messenger.send(message)
+        send(whom, message)
         synchronized(lock) {
             lock.wait()
         }
@@ -168,12 +102,32 @@ val genServer = object : GenServerUtil {
     }
 
     override fun cast(whom: String, request: Parcelable) {
-        val service = listServices[whom] ?: return
         val message = Message.obtain().apply {
             what = MessageCode.SEND_CAST.what
             obj = request
         }
-        service.messenger.send(message)
+        send(whom, message)
+    }
+
+    private fun send(whom: String, message: Message, except: List<String> = listOf()) {
+        val isSend = listServices[whom]?.messenger?.send(message)
+        if (isSend == null) sendRemote(whom, message, except)
+    }
+
+    private fun sendRemote(whom: String, message: Message, except: List<String>) {
+        val remotes = listServices.values.filterIsInstance<NodeGenServerInstance>()
+        val nodeMessage = Message.obtain().apply {
+            what = MessageCode.REMOTE.what
+            data = Bundle().apply {
+                putString("whom", whom)
+                putParcelable("message", message)
+                putStringArrayList("except", ArrayList(remotes.map { it.name } + except))
+            }
+        }
+        remotes.forEach {
+            if (except.contains(it.name)) return@forEach
+            it.messenger.send(nodeMessage)
+        }
     }
 
     override fun <State> stop(module: GenServer<State>) {
@@ -198,6 +152,14 @@ fun Messenger.linkAs(moduleName: String) {
     }
 }
 
+fun Messenger.linkAsNode(moduleName: String) {
+    if (listServices.entries.find { it.value.messenger == this } != null) return
+    listServices[moduleName] = object : NodeGenServerInstance {
+        override val name: String = moduleName
+        override val messenger: Messenger = this@linkAsNode
+    }
+}
+
 fun Messenger.unlink() {
     val instance = listServices.entries.find { it.value.messenger == this } ?: return
     listServices.remove(instance.key)
@@ -207,12 +169,42 @@ fun unlink(moduleName: String) {
     listServices.remove(moduleName)
 }
 
-fun <State> GenServer<State>.asMessenger(): Messenger {
-    val service = listServices[javaClass.simpleName] ?: throw NotFoundGenServerException()
+fun <State> GenServer<State>.asMessenger(name: String = javaClass.simpleName): Messenger {
+    val service = listServices[name] ?: throw NotFoundGenServerException()
     return service.messenger
 }
 
 fun findMessenger(serverName: String): Messenger {
     val service = listServices[serverName] ?: throw NotFoundGenServerException()
     return service.messenger
+}
+
+fun <State> GenServer<State>.bindGenServer(
+    context: Context,
+    intent: Intent,
+    nameNode: String,
+    thisServerName: String = this.javaClass.simpleName
+): ServiceConnection {
+    val thisServer = listServices[thisServerName] ?: throw NotFoundGenServerException()
+    intent.putExtra("nodeName", thisServer.name)
+    intent.putExtra("nodeMessenger", thisServer.messenger)
+    val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(componentName: ComponentName, service: IBinder) {
+            Messenger(service).linkAsNode(nameNode)
+        }
+        override fun onServiceDisconnected(componentName: ComponentName) {
+            unlink(nameNode)
+        }
+    }
+    context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+    return serviceConnection
+}
+
+fun getNodeFrom(intent: Intent) {
+    val nodeName = intent.getStringExtra("nodeName")
+    val nodeMessenger = intent.getParcelableExtra<Messenger>("nodeMessenger")
+    if (nodeName == null || nodeMessenger == null) {}
+    else {
+        nodeMessenger.linkAsNode(nodeName)
+    }
 }

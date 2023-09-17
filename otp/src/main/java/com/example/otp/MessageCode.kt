@@ -5,5 +5,6 @@ enum class MessageCode(val what: Int) {
     SEND_CAST(1),
     RECEIVE_CALL(2),
     RECEIVE_CAST(4),
-    STOP(8);
+    STOP(8),
+    REMOTE(16);
 }

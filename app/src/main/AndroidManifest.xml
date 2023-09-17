@@ -27,6 +27,11 @@
             android:process=".main_service"
             android:exported="true"
             android:enabled="true" />
+
+        <service android:name=".SecondService"
+            android:process=".something"
+            android:exported="true"
+            android:enabled="true" />
     </application>
 
 </manifest>
